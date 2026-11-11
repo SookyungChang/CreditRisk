@@ -193,7 +193,9 @@ undocumented model, ...) and checks that each one is reported.
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and
 on pull requests. The Kaggle data cannot be downloaded or redistributed in
 CI, so CI uses the synthetic sample data instead of `ingest.py`, then runs
-pytest, `dbt build`, the lineage check and `explore.py`.
+pytest, `dbt build`, the lineage check and `explore.py`. The lineage check
+runs with `--check-only`, which skips drawing the diagrams, so CI does not
+need the Graphviz system package.
 
 ## Key findings
 

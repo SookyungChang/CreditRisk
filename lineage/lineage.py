@@ -6,6 +6,7 @@ what dbt actually built: the models in dbt's manifest, their columns in
 risk.duckdb, and the column edges sqlglot parses from their compiled SQL.
 
 Step 4 of the pipeline (after `dbt build`): uv run python lineage/lineage.py
+Add --check-only to skip trace/impact and drawing (no Graphviz needed, as in CI).
 """
 import json
 import sys
@@ -237,6 +238,8 @@ def main():
             print(f"  - {problem}")
         sys.exit(1)
     print(f"PASS  LINEAGE matches the dbt build ({', '.join(sorted(models))})")
+    if "--check-only" in sys.argv:
+        return
 
     print_edges("trace('risk_mart.credit_income_ratio'):", trace("risk_mart.credit_income_ratio"))
     print_edges("impact('application.DAYS_EMPLOYED'):", impact("application.DAYS_EMPLOYED"))

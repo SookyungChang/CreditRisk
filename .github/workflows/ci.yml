@@ -11,12 +11,9 @@ jobs:
     env:
       DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v6
-
-      - name: Install Graphviz (used by lineage/lineage.py)
-        run: sudo apt-get update && sudo apt-get install -y graphviz
+      - uses: astral-sh/setup-uv@v10.3.3
 
       - name: Install dependencies
         run: uv sync --locked
@@ -33,8 +30,9 @@ jobs:
         working-directory: risk_dbt
         run: uv run dbt deps && uv run dbt build
 
+      # Check only: drawing would need the Graphviz system package
       - name: Column lineage check
-        run: uv run python lineage/lineage.py
+        run: uv run python lineage/lineage.py --check-only
 
       - name: Exploration queries
         run: uv run python explore.py
