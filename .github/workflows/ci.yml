@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    env:
+      DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install Graphviz (used by lineage/lineage.py)
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Unit tests
+        run: uv run pytest
+
+      # The Kaggle data cannot be downloaded or redistributed here, so the rest of
+      # the pipeline runs on synthetic sample data instead of ingest.py.
+      - name: Create sample database
+        run: uv run python tests/sample_data.py
+
+      - name: dbt build
+        working-directory: risk_dbt
+        run: uv run dbt deps && uv run dbt build
+
+      - name: Column lineage check
+        run: uv run python lineage/lineage.py
+
+      - name: Exploration queries
+        run: uv run python explore.py
