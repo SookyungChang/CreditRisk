@@ -1,0 +1,71 @@
+version: 2
+models:
+  - name: risk_mart
+    description: "One row per loan applicant, enriched with credit bureau history."
+    columns:
+      - name: SK_ID_CURR
+        description: >
+          ID of loan in our sample
+        data_tests: [not_null, unique]
+
+      - name: TARGET
+        description: >
+          Target variable (1 - client with payment difficulties: 
+          he/she had late payment more than X days on at least one of the first Y 
+          installments of the loan in our sample, 0 - all other cases)
+          Exact thresholds X and Y are not disclosed by the data provider.
+        meta:
+          cde: true
+        data_tests: 
+        - not_null
+        - accepted_values:
+            arguments:
+              values: [0, 1]
+              quote: false   # compare as numbers, not strings
+
+      - name: n_loans
+        description: >
+          Number of loans at other institutions according to the credit bureau.
+          Set to 0 if the applicant has no bureau record at all.
+        meta:
+          cde: true
+        data_tests: [not_null]
+
+      - name: n_active_loans
+        description: >
+          Number of loans at other institutions that were still active
+          according to the credit bureau. Set to 0 if the applicant has
+          no bureau record at all, so 0 does not distinguish
+          'no active loans' from 'no information'.
+        meta:
+          cde: true
+        data_tests: [not_null]  
+
+      - name: is_not_employed
+        description: >
+          1 if DAYS_EMPLOYED in the application contained the placeholder value 365243,
+          meaning the applicant had no current employment at application time.
+          Does not distinguish 'Unemployed' from 'Pensioner' (see NAME_INCOME_TYPE).
+        data_tests: [not_null]
+
+      - name: credit_income_ratio
+        description: >
+          Credit amount of the loan divided by the applicant's total income
+          (AMT_CREDIT / AMT_INCOME_TOTAL). A value of 3 means the loan is
+          three times the reported income.
+        data_tests:
+          - not_null
+      
+  - name: stg_application
+    description: "Staging table for application data."
+    columns:
+      - name: SK_ID_CURR
+        description: >
+          ID of loan in our sample
+        data_tests: [not_null, unique]
+      - name: AMT_INCOME_TOTAL
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "> 0"

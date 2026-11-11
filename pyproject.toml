@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "creditRisk"
+version = "1.0.0"
+description = "financial-risk-data-platfform"
+requires-python = "==3.12.*"
+dependencies = [
+    "kagglehub",
+    "scikit-learn",
+    "ipykernel",
+    "pyarrow",
+    "pandas",
+    "matplotlib",
+    "seaborn",
+    "statsmodels",
+    "python-dotenv",
+    "duckdb",
+    "graphviz",
+    "dbt-duckdb",
+    "sqlglot>=30.30.0",
+]
+
+[project.optional-dependencies]
+dev = []
+
+[tool.setuptools.packages.find]
+where = ["src"]

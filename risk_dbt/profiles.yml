@@ -1,0 +1,6 @@
+risk_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../risk.duckdb   # relative to the risk_dbt folder

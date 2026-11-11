@@ -1,0 +1,8 @@
+name: risk_dbt
+version: "1.0.0"
+profile: risk_dbt
+model-paths: ["models"]
+
+models:
+  risk_dbt:
+    +materialized: table   # build every model as a real table
