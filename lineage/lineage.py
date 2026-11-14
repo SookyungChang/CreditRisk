@@ -261,8 +261,8 @@ def main():
     if "--check-only" in sys.argv:
         return
 
-    print_edges("trace('risk_mart.credit_income_ratio'):", trace("risk_mart.credit_income_ratio"))
-    print_edges("impact('application.DAYS_EMPLOYED'):", impact("application.DAYS_EMPLOYED"))
+    print_edges("trace('kri.total_ead'):", trace("kri.total_ead"))
+    print_edges("impact('bureau.AMT_CREDIT_SUM'):", impact("bureau.AMT_CREDIT_SUM"))
     draw_lineage()
 
 

@@ -1,7 +1,7 @@
 """Exploratory questions on the Home Credit data.
 
 Step 3 of the pipeline: ingest.py -> dbt build -> explore.py
-Reads the raw tables (application, bureau) and the dbt-built risk_mart.
+Reads the raw tables (application, bureau) and the dbt-built risk_mart and kri.
 """
 import duckdb
 
@@ -64,6 +64,40 @@ def check_default_rate_by_active_loans(con):
         """))
 
 
+def completeness_check(con):
+    print("Completeness check of the strongest predictors")
+    print(con.sql("""
+        SELECT
+            COUNT(*) AS n_rows,
+            AVG(CASE WHEN EXT_SOURCE_1 IS NULL THEN 1.0 ELSE 0 END) AS missing_ext1,
+            AVG(CASE WHEN EXT_SOURCE_2 IS NULL THEN 1.0 ELSE 0 END) AS missing_ext2,
+            AVG(CASE WHEN EXT_SOURCE_3 IS NULL THEN 1.0 ELSE 0 END) AS missing_ext3
+        FROM application
+        """))
+
+
+def kri_check(con):
+    print("Check KRI calculations")
+    print(con.sql("""
+        SELECT * FROM kri
+        """))
+
+
+def currency_check(con):
+    print("Check currency of loans")
+    print(con.sql("""
+        SELECT
+            CREDIT_CURRENCY,
+            COUNT(*)                                            AS n_loans,
+            COUNT(*) * 1.0 / SUM(COUNT(*)) OVER ()              AS share_by_count,
+            SUM(AMT_CREDIT_SUM)                                 AS total_amount,
+            SUM(AMT_CREDIT_SUM) / SUM(SUM(AMT_CREDIT_SUM)) OVER () AS share_by_amount
+        FROM bureau
+        GROUP BY CREDIT_CURRENCY
+        ORDER BY n_loans DESC
+        """))
+
+
 def main():
     con = duckdb.connect(str(config.DB_PATH), read_only=True)
     try:
@@ -71,6 +105,9 @@ def main():
         check_days_employed_placeholder(con)
         check_bureau_coverage(con)
         check_default_rate_by_active_loans(con)
+        completeness_check(con)
+        kri_check(con)
+        currency_check(con)
     finally:
         con.close()
 
