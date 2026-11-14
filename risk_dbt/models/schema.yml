@@ -25,8 +25,10 @@ models:
 
       - name: n_loans
         description: >
-          Number of loans at other institutions according to the credit bureau.
-          Set to 0 if the applicant has no bureau record at all.
+          Number of loans at other institutions according to the credit bureau,
+          credit cards excluded (see bureau_agg). Set to 0 if the applicant has
+          no such loan, which includes applicants with only credit cards or no
+          bureau record at all.
         meta:
           cde: true
         data_tests: [not_null]
@@ -34,9 +36,9 @@ models:
       - name: n_active_loans
         description: >
           Number of loans at other institutions that were still active
-          according to the credit bureau. Set to 0 if the applicant has
-          no bureau record at all, so 0 does not distinguish
-          'no active loans' from 'no information'.
+          according to the credit bureau, credit cards excluded. Set to 0 if
+          the applicant has no such loan, so 0 does not distinguish
+          'no active loans' from 'only credit cards' or 'no information'.
         meta:
           cde: true
         data_tests: [not_null]  
@@ -73,7 +75,8 @@ models:
   - name: kri
     description: >
       Key risk indicators for the whole portfolio, one row built on risk_mart.
-      PD is the observed default rate per n_active_loans segment (in-sample),
+      PD is the observed default rate per n_active_loans segment (in-sample,
+      credit cards not counted),
       EAD is the credit amount of the loan (AMT_CREDIT) and LGD is a fixed 45%
       assumption, not estimated from the data.
     data_tests:

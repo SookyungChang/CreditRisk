@@ -32,17 +32,19 @@ def create_sample_db(path):
         con.execute("""
             CREATE OR REPLACE TABLE bureau (
                 SK_ID_CURR BIGINT, SK_ID_BUREAU BIGINT, CREDIT_ACTIVE VARCHAR,
-                CREDIT_CURRENCY VARCHAR, AMT_CREDIT_SUM DOUBLE
+                CREDIT_TYPE VARCHAR, CREDIT_CURRENCY VARCHAR, AMT_CREDIT_SUM DOUBLE
             )
         """)
-        # Applicant 3 has no bureau history; applicant 9 is not in application
+        # Applicant 3 has no bureau history; applicant 9 is not in application.
+        # Applicant 2's credit card must not count as a loan in bureau_agg.
         con.execute("""
             INSERT INTO bureau VALUES
-                (1, 11, 'Active', 'currency 1', 200000.0),
-                (1, 12, 'Closed', 'currency 1', 100000.0),
-                (2, 21, 'Active', 'currency 2', 50000.0),
-                (4, 41, 'Closed', 'currency 1', 80000.0),
-                (9, 91, 'Active', 'currency 1', 10000.0)
+                (1, 11, 'Active', 'Consumer credit', 'currency 1', 200000.0),
+                (1, 12, 'Closed', 'Car loan', 'currency 1', 100000.0),
+                (2, 21, 'Active', 'Consumer credit', 'currency 2', 50000.0),
+                (2, 22, 'Active', 'Credit card', 'currency 1', 0.0),
+                (4, 41, 'Closed', 'Consumer credit', 'currency 1', 80000.0),
+                (9, 91, 'Active', 'Consumer credit', 'currency 1', 10000.0)
         """)
     finally:
         con.close()

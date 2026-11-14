@@ -78,7 +78,7 @@ CreditRisk/
 │   ├── models/
 │   │   ├── sources.yml         # raw.application, raw.bureau
 │   │   ├── stg_application.sql # application columns in use, DAYS_EMPLOYED cleaned
-│   │   ├── bureau_agg.sql      # bureau loans aggregated per applicant
+│   │   ├── bureau_agg.sql      # non-card bureau loans aggregated per applicant
 │   │   ├── risk_mart.sql       # one row per applicant, enriched with bureau history
 │   │   ├── kri.sql             # portfolio key risk indicators (PD, EAD, EL, concentration)
 │   │   └── schema.yml          # column docs + generic tests
@@ -180,8 +180,10 @@ Notes:
   `n_active_loans`, but neither `LINEAGE` nor sqlglot counts a GROUP BY or
   JOIN key as an input, so `trace('kri.expected_loss')` never reaches
   `risk_mart.n_active_loans` and `impact('risk_mart.n_active_loans')` is
-  empty. Changing only the grouping still moves expected loss (-0.22% when the
-  0 segment is split by bureau record). `findings.py` shows both.
+  empty. Changing only the grouping still moves expected loss (-0.38% when the
+  0 segment is split at `n_loans = 0`). `findings.py` shows both. The same
+  holds for a WHERE filter: `bureau_agg` reads `bureau.CREDIT_TYPE` only to
+  drop credit cards, so that column has no edge either.
 - The checks verify which columns are connected, not the transformation text.
   Review that against the SQL by hand.
 
@@ -238,28 +240,31 @@ From `explore.py`:
    `days_employed` to NULL for them and flags them with `is_not_employed = 1`,
    and `risk_mart` passes both columns through.
 3. **85.7% of applicants have a credit bureau history** (263,491 of 307,511).
-   The other 44,020 get `n_loans = 0` and `n_active_loans = 0`, so 0 means
-   either "no active loans" or "no bureau information".
+   The other 44,020, and 12,326 applicants whose bureau history is only
+   credit cards (excluded, see Design decisions), get `n_loans = 0` and
+   `n_active_loans = 0`, so 0 means "no active loans", "only credit cards" or
+   "no bureau information".
 4. **Default rate rises with the number of active loans.** It is lowest at one
    active loan and increases steadily from there:
 
-   | n_active_loans | customers | default rate |
+   | n_active_loans (credit cards excluded) | customers | default rate |
    |---:|---:|---:|
-   | 0 | 90,361 | 7.8% |
-   | 1 | 74,103 | 7.1% |
-   | 2 | 58,383 | 7.4% |
-   | 3 | 38,011 | 8.3% |
-   | 4 | 22,041 | 9.2% |
-   | 5 | 12,051 | 10.7% |
-   | 6 | 6,107 | 11.7% |
-   | 7 | 3,156 | 13.6% |
+   | 0 | 135,493 | 7.7% |
+   | 1 | 94,573 | 7.6% |
+   | 2 | 47,687 | 8.5% |
+   | 3 | 19,248 | 9.8% |
+   | 4 | 6,891 | 11.0% |
+   | 5 | 2,274 | 12.1% |
+   | 6 | 836 | 14.1% |
+   | 7 | 312 | 21.2% |
 
-   The 0 group mixes two different populations (`findings.py`): applicants
-   whose bureau loans are all closed (45,614, 5.5% default) and applicants with
-   no bureau history at all (44,020, 10.1% default). The gap is 4.6 percentage
-   points (95% CI 4.2 to 4.9, z = 25.6), so no-history applicants default 1.8
-   times as often. Another 727 have no active loan but a sold or bad-debt loan
-   (12.9% default). `kri` still prices the whole segment with one PD of 7.8%.
+   The 0 group mixes different populations (`findings.py`): applicants whose
+   bureau loans are all closed (78,001, 5.9% default) and applicants with no
+   bureau history at all (44,020, 10.1% default). The gap is 4.2 percentage
+   points (95% CI 3.9 to 4.5, z = 26.8), so no-history applicants default 1.7
+   times as often. It also holds 12,326 applicants with only credit cards
+   (9.5% default) and 1,146 with no active loan but a sold or bad-debt loan
+   (12.7% default). `kri` still prices the whole segment with one PD of 7.7%.
 5. **The external scores are often missing.** `EXT_SOURCE_1` is missing for
    56.4% of applicants and `EXT_SOURCE_3` for 19.8%, while `EXT_SOURCE_2` is
    almost complete (0.2% missing). Any model using them needs an explicit
@@ -274,7 +279,7 @@ From `explore.py`:
    |---|---:|
    | Observed default rate | 8.07% |
    | Total EAD (sum of `AMT_CREDIT`) | 184.2 billion |
-   | Expected loss | 6.71 billion (3.6% of EAD) |
+   | Expected loss | 6.69 billion (3.6% of EAD) |
    | EAD held by the largest 10% of loans | 24.4% |
 
    PD is the observed default rate per `n_active_loans` segment, estimated
@@ -296,6 +301,12 @@ Income is complete and positive in the raw data (minimum 25,650, no NULLs), so
 - **A staging layer.** `stg_application` selects the raw columns in use and
   cleans the `DAYS_EMPLOYED` placeholder once, so `risk_mart` only joins and
   derives features.
+- **Credit cards are excluded from the bureau loan counts.** They are 45.4% of
+  active bureau loans, so `n_active_loans` largely counted cards, and their
+  `AMT_CREDIT_SUM` has no consistent meaning (0 for 36,295 of 285,998 active
+  cards, equal to the card limit for only 17,170). `bureau_agg` therefore
+  counts and averages non-card loans only. Revolving loans applied for at
+  Home Credit (`application.NAME_CONTRACT_TYPE`) stay in the portfolio.
 - **Column lineage is written by hand, then verified by machine.** Lineage
   generated from the SQL would faithfully copy any mistake in the SQL. A
   hand-written `LINEAGE` states the intended data flow, and sqlglot proves

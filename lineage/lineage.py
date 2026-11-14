@@ -37,10 +37,11 @@ LINEAGE = [
 
     # risk_dbt/models/bureau_agg.sql
     ("bureau.SK_ID_CURR", "bureau_agg.SK_ID_CURR", "GROUP BY key"),
-    ("bureau.SK_ID_BUREAU", "bureau_agg.n_loans", "COUNT(*) per SK_ID_CURR"),
-    ("bureau.AMT_CREDIT_SUM", "bureau_agg.avg_amount", "AVG(AMT_CREDIT_SUM)"),
+    # (credit cards are filtered out with WHERE CREDIT_TYPE, which is not an input column)
+    ("bureau.SK_ID_BUREAU", "bureau_agg.n_loans", "COUNT(*) per SK_ID_CURR, credit cards excluded"),
+    ("bureau.AMT_CREDIT_SUM", "bureau_agg.avg_amount", "AVG(AMT_CREDIT_SUM), credit cards excluded"),
     ("bureau.CREDIT_ACTIVE", "bureau_agg.n_active_loans",
-     "SUM(CASE WHEN CREDIT_ACTIVE = 'Active' THEN 1 ELSE 0 END)"),
+     "SUM(CASE WHEN CREDIT_ACTIVE = 'Active' THEN 1 ELSE 0 END), credit cards excluded"),
 
     # risk_dbt/models/risk_mart.sql
     ("stg_application.SK_ID_CURR", "risk_mart.SK_ID_CURR", "pass-through (LEFT JOIN key)"),

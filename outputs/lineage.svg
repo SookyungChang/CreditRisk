@@ -285,7 +285,7 @@
 <!-- bureau.SK_ID_BUREAU&#45;&gt;bureau_agg.n_loans -->
 <g id="edge9" class="edge">
 <title>bureau.SK_ID_BUREAU&#45;&gt;bureau_agg.n_loans</title>
-<g id="a_edge9"><a xlink:title="COUNT(*) per SK_ID_CURR">
+<g id="a_edge9"><a xlink:title="COUNT(*) per SK_ID_CURR, credit cards excluded">
 <path fill="none" stroke="black" d="M311.19,-562C363.53,-562 423.54,-562 474.92,-562"/>
 <polygon fill="black" stroke="black" points="474.91,-565.5 484.91,-562 474.91,-558.5 474.91,-565.5"/>
 </a>
@@ -321,7 +321,7 @@
 <!-- bureau.AMT_CREDIT_SUM&#45;&gt;bureau_agg.avg_amount -->
 <g id="edge10" class="edge">
 <title>bureau.AMT_CREDIT_SUM&#45;&gt;bureau_agg.avg_amount</title>
-<g id="a_edge10"><a xlink:title="AVG(AMT_CREDIT_SUM)">
+<g id="a_edge10"><a xlink:title="AVG(AMT_CREDIT_SUM), credit cards excluded">
 <path fill="none" stroke="black" d="M327.91,-616C368.08,-616 411.57,-616 451.59,-616"/>
 <polygon fill="black" stroke="black" points="451.55,-619.5 461.55,-616 451.55,-612.5 451.55,-619.5"/>
 </a>
@@ -357,7 +357,7 @@
 <!-- bureau.CREDIT_ACTIVE&#45;&gt;bureau_agg.n_active_loans -->
 <g id="edge11" class="edge">
 <title>bureau.CREDIT_ACTIVE&#45;&gt;bureau_agg.n_active_loans</title>
-<g id="a_edge11"><a xlink:title="SUM(CASE WHEN CREDIT_ACTIVE = &#39;Active&#39; THEN 1 ELSE 0 END)">
+<g id="a_edge11"><a xlink:title="SUM(CASE WHEN CREDIT_ACTIVE = &#39;Active&#39; THEN 1 ELSE 0 END), credit cards excluded">
 <path fill="none" stroke="black" d="M313.18,-670C353.58,-670 398.39,-670 440.21,-670"/>
 <polygon fill="black" stroke="black" points="440.11,-673.5 450.11,-670 440.11,-666.5 440.11,-673.5"/>
 </a>

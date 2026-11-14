@@ -1,9 +1,10 @@
 """Two findings about n_active_loans, the PD segment key in kri.
 
-1. n_active_loans = 0 hides two populations. risk_mart sets it to 0 both for
+1. n_active_loans = 0 hides several populations. risk_mart sets it to 0 for
    applicants whose bureau loans are all closed and, through COALESCE, for
-   applicants with no bureau record at all. The script splits the 0 group by
-   bureau history and compares the default rates (mean TARGET).
+   applicants with only credit cards (excluded in bureau_agg) or no bureau
+   record at all. The script splits the 0 group by bureau history and compares
+   the default rates (mean TARGET).
 2. Column lineage cannot see it. kri uses n_active_loans only as the GROUP BY
    and JOIN key of its PD, so neither LINEAGE nor sqlglot lists it as an input
    of the PD columns, although the grouping changes expected_loss.
@@ -32,27 +33,33 @@ EXPECTED_LOSS_BY_GROUPING = f"""
         SELECT
             AMT_CREDIT AS ead,
             AVG(TARGET) OVER (PARTITION BY n_active_loans) AS by_active_loans,
-            AVG(TARGET) OVER (PARTITION BY n_active_loans, n_loans = 0) AS by_active_loans_and_record,
+            AVG(TARGET) OVER (PARTITION BY n_active_loans, n_loans = 0) AS by_active_loans_and_any_loan,
             AVG(TARGET) OVER () AS no_grouping
         FROM risk_mart
     )
     SELECT
         SUM(by_active_loans * {LGD} * ead),
-        SUM(by_active_loans_and_record * {LGD} * ead),
+        SUM(by_active_loans_and_any_loan * {LGD} * ead),
         SUM(no_grouping * {LGD} * ead)
     FROM pd
 """
 
-# Applicants with n_active_loans = 0, split by what the bureau knows about them
+# Applicants with n_active_loans = 0, split by what the bureau knows about them.
+# Loans are non-card loans, the same exclusion as risk_dbt/models/bureau_agg.sql.
 ZERO_ACTIVE_GROUPS = """
     WITH bureau_history AS (
-        SELECT SK_ID_CURR, BOOL_AND(CREDIT_ACTIVE = 'Closed') AS all_closed
+        SELECT
+            SK_ID_CURR,
+            COUNT(*) FILTER (WHERE CREDIT_TYPE IS DISTINCT FROM 'Credit card') AS loans,
+            BOOL_AND(CREDIT_ACTIVE = 'Closed')
+                FILTER (WHERE CREDIT_TYPE IS DISTINCT FROM 'Credit card') AS all_closed
         FROM bureau
         GROUP BY SK_ID_CURR
     )
     SELECT
         CASE
-            WHEN m.n_loans = 0 THEN 'no bureau record'
+            WHEN h.SK_ID_CURR IS NULL THEN 'no bureau record'
+            WHEN h.loans = 0 THEN 'credit cards only'
             WHEN h.all_closed THEN 'all loans closed'
             ELSE 'sold or bad debt'  -- no active loan, but not every loan is closed
         END AS bureau_history,
@@ -64,7 +71,8 @@ ZERO_ACTIVE_GROUPS = """
     WHERE m.n_active_loans = 0
     GROUP BY bureau_history
     ORDER BY CASE bureau_history
-        WHEN 'no bureau record' THEN 1 WHEN 'all loans closed' THEN 2 ELSE 3 END
+        WHEN 'no bureau record' THEN 1 WHEN 'credit cards only' THEN 2
+        WHEN 'all loans closed' THEN 3 ELSE 4 END
 """
 
 
@@ -147,10 +155,10 @@ def check_segment_key_lineage(con, kri_sql):
 
 def compare_expected_loss_by_grouping(con):
     """Show that changing only the PD grouping changes kri.expected_loss."""
-    as_built, by_record, flat = con.execute(EXPECTED_LOSS_BY_GROUPING).fetchall()[0]
+    as_built, by_any_loan, flat = con.execute(EXPECTED_LOSS_BY_GROUPING).fetchall()[0]
     print(f"Yet the PD grouping moves expected loss (LGD {LGD:.0%}, as in kri.sql):")
     for label, value in (("PD by n_active_loans (as in kri)", as_built),
-                         ("PD by n_active_loans and bureau record", by_record),
+                         ("PD by n_active_loans and n_loans = 0", by_any_loan),
                          ("one PD for all (no grouping)", flat)):
         line = f"  {label:<40} {value:>16,.0f}"
         if value != as_built:  # as_built is 0 only if nobody defaults, and then so is every grouping
