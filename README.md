@@ -25,8 +25,12 @@ Set up the environment, then run the steps in order (from the project root):
 uv sync
 ```
 
-`uv sync` also installs the `dev` group (pytest). To open the legacy
-exploration notebook, add `--group notebook` (pandas, ipykernel).
+`uv sync` also installs the `dev` group (pytest, nbstripout). To open the
+legacy exploration notebook, add `--group notebook` (pandas, ipykernel).
+
+Before committing notebook changes, run `uv run nbstripout --install` once per
+clone. `.gitattributes` then strips notebook outputs on every commit, so no
+raw Kaggle data reaches git, while your local notebook keeps its outputs.
 
 ```bash
 uv run python ingest.py

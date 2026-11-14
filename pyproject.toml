@@ -20,7 +20,11 @@ dependencies = [
 where = ["src"]
 
 [dependency-groups]
+dependency = [
+    "notebook>=7.6.5",
+]
 dev = [
+    "nbstripout>=0.9.1",
     "pytest>=9.2.0",
 ]
 notebook = [
