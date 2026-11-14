@@ -34,12 +34,14 @@ LINEAGE = [
      "NULL if 365243 (placeholder), else DAYS_EMPLOYED"),
     ("application.DAYS_EMPLOYED", "stg_application.is_not_employed",
      "1 if 365243 (placeholder), else 0"),
+
     # risk_dbt/models/bureau_agg.sql
     ("bureau.SK_ID_CURR", "bureau_agg.SK_ID_CURR", "GROUP BY key"),
     ("bureau.SK_ID_BUREAU", "bureau_agg.n_loans", "COUNT(*) per SK_ID_CURR"),
     ("bureau.AMT_CREDIT_SUM", "bureau_agg.avg_amount", "AVG(AMT_CREDIT_SUM)"),
     ("bureau.CREDIT_ACTIVE", "bureau_agg.n_active_loans",
      "SUM(CASE WHEN CREDIT_ACTIVE = 'Active' THEN 1 ELSE 0 END)"),
+
     # risk_dbt/models/risk_mart.sql
     ("stg_application.SK_ID_CURR", "risk_mart.SK_ID_CURR", "pass-through (LEFT JOIN key)"),
     ("stg_application.TARGET", "risk_mart.TARGET", "pass-through"),
@@ -52,12 +54,28 @@ LINEAGE = [
      "AMT_CREDIT / NULLIF(AMT_INCOME_TOTAL, 0)"),
     ("stg_application.days_employed", "risk_mart.days_employed", "pass-through (cleaned in staging)"),
     ("stg_application.is_not_employed", "risk_mart.is_not_employed", "pass-through (derived in staging)"),
+    ("stg_application.AMT_CREDIT", "risk_mart.AMT_CREDIT", "pass-through"),
+    
+    # risk_dbt/models/kri.sql
+    ("risk_mart.SK_ID_CURR", "kri.n_customers", "COUNT(*)"),
+    ("risk_mart.TARGET", "kri.observed_default_rate", "AVG(TARGET)"),
+    ("risk_mart.TARGET", "kri.avg_pd",
+     "AVG(pd), pd = AVG(TARGET) per n_active_loans segment"),
+    ("risk_mart.AMT_CREDIT", "kri.total_ead", "SUM(AMT_CREDIT)"),
+    ("risk_mart.AMT_CREDIT", "kri.expected_loss", "SUM(pd * lgd * ead), lgd = 0.45 (assumption)"),
+    ("risk_mart.TARGET", "kri.expected_loss", "pd = AVG(TARGET) per n_active_loans segment"),
+    ("risk_mart.AMT_CREDIT", "kri.top10_concentration",
+     "EAD share of the largest 10% of loans (NTILE(10) by AMT_CREDIT)"),
 ]
 
 # COUNT(*) columns have no input column for sqlglot to find, so their
 # documented edge is accepted as long as the SQL still counts rows.
-ROW_COUNT_COLUMNS = {"bureau_agg.n_loans"}
-
+ROW_COUNT_COLUMNS = {"bureau_agg.n_loans", "kri.n_customers"}
+# Columns with an input that is a fixed assumption rather than a table column.
+# The value documents the assumption, so it stays visible in the lineage.
+ASSUMPTION_COLUMNS = {
+    "kri.expected_loss": "LGD fixed at 45% (not in the data)",
+}
 
 def trace(column):
     """Return every edge upstream of `column`, nearest first."""
@@ -151,7 +169,9 @@ def check_edges(models, columns, schema):
     documented = {key((source, target)): (source, target)
                   for source, target, _ in LINEAGE if target.split(".", 1)[0] in models}
     untraced = {target.lower() for target in untraced}
-    row_count = {column.lower() for column in ROW_COUNT_COLUMNS if column.split(".", 1)[0] in models}
+        # COUNT(*) columns and assumption-based columns both have untraceable inputs
+    untraceable = ROW_COUNT_COLUMNS | set(ASSUMPTION_COLUMNS)
+    row_count = {column.lower() for column in untraceable if column.split(".", 1)[0] in models}
 
     problems = []
     for edge in sorted(derived.keys() - documented.keys()):

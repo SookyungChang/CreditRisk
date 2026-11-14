@@ -1,6 +1,7 @@
 SELECT
     a.SK_ID_CURR,
     a.TARGET,
+    a.AMT_CREDIT,           -- new: exposure amount (used as EAD)
     COALESCE(b.n_loans, 0) AS n_loans,
     b.avg_amount,
     COALESCE(b.n_active_loans, 0) AS n_active_loans,

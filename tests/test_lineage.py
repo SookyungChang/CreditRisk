@@ -9,7 +9,7 @@ from credit_risk.config import config
 from sample_data import create_sample_db
 
 MODELS_DIR = config.PROJECT_ROOT / "risk_dbt" / "models"
-MODEL_ORDER = ["stg_application", "bureau_agg", "risk_mart"]  # build order
+MODEL_ORDER = ["stg_application", "bureau_agg", "risk_mart", "kri"]  # build order
 SOURCES = {"application", "bureau"}
 
 # {{ source('raw', 'x') }} / {{ ref('x') }}
@@ -96,7 +96,7 @@ def test_unbuilt_model(built):
 
 
 def test_count_star_needs_row_count_entry(built, monkeypatch):
-    monkeypatch.setattr(lineage, "ROW_COUNT_COLUMNS", set())
+    monkeypatch.setattr(lineage, "ROW_COUNT_COLUMNS", lineage.ROW_COUNT_COLUMNS - {"bureau_agg.n_loans"})
     assert check(built) == [
         "in LINEAGE but not in SQL: bureau.SK_ID_BUREAU -> bureau_agg.n_loans",
         "bureau_agg.n_loans: input is not a column; add it to ROW_COUNT_COLUMNS if it is a COUNT(*)",
@@ -104,7 +104,7 @@ def test_count_star_needs_row_count_entry(built, monkeypatch):
 
 
 def test_stale_row_count_entry(built, monkeypatch):
-    monkeypatch.setattr(lineage, "ROW_COUNT_COLUMNS", {"bureau_agg.n_loans", "bureau_agg.avg_amount"})
+    monkeypatch.setattr(lineage, "ROW_COUNT_COLUMNS", lineage.ROW_COUNT_COLUMNS | {"bureau_agg.avg_amount"})
     assert check(built) == [
         "bureau_agg.avg_amount: in ROW_COUNT_COLUMNS but sqlglot traces its input; remove it",
     ]
