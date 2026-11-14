@@ -46,6 +46,10 @@ uv run python explore.py
 ```
 
 ```bash
+uv run python findings.py
+```
+
+```bash
 uv run python lineage/lineage.py
 ```
 
@@ -55,6 +59,7 @@ uv run python lineage/lineage.py
 | `dbt deps` | Installs `dbt_utils` (pinned in `risk_dbt/package-lock.yml`). Needed once per checkout. |
 | `dbt build` | Builds `stg_application`, `bureau_agg`, `risk_mart` and `kri` and runs every data test. Must be run from `risk_dbt/`, because `profiles.yml` points to `../risk.duckdb`. |
 | `explore.py` | Prints the exploratory questions below. Opens the database read-only. |
+| `findings.py` | Splits the `n_active_loans = 0` segment by bureau history and compares the default rates, with a 95% CI and a two-proportion z-test. Opens the database read-only. |
 | `lineage/lineage.py` | Checks the documented column-level lineage against the latest `dbt build` (exit code 1 on mismatch), then redraws `outputs/lineage.png` and `outputs/lineage.svg`. Reads `risk_dbt/target/manifest.json`, so run it after `dbt build`. |
 
 `risk.duckdb` is fully generated: delete it and re-run the steps to rebuild
@@ -82,6 +87,7 @@ CreditRisk/
 │       ├── assert_pd_reconciles.sql
 │       └── assert_row_count_matches.sql
 ├── explore.py                  # 3. Exploratory questions
+├── findings.py                 # 3. Default rate behind n_active_loans = 0, by bureau history
 ├── lineage/lineage.py          # 4. Column-level lineage: check, trace/impact, draw
 ├── src/credit_risk/config.py   # Shared paths (project root, database file)
 ├── tests/
@@ -242,9 +248,12 @@ From `explore.py`:
    | 6 | 6,107 | 11.7% |
    | 7 | 3,156 | 13.6% |
 
-   The 0 group mixes two different populations: applicants with only closed
-   loans (46,341, 5.7% default) and applicants with no bureau history at all
-   (44,020, 10.1% default).
+   The 0 group mixes two different populations (`findings.py`): applicants
+   whose bureau loans are all closed (45,614, 5.5% default) and applicants with
+   no bureau history at all (44,020, 10.1% default). The gap is 4.6 percentage
+   points (95% CI 4.2 to 4.9, z = 25.6), so no-history applicants default 1.8
+   times as often. Another 727 have no active loan but a sold or bad-debt loan
+   (12.9% default). `kri` still prices the whole segment with one PD of 7.8%.
 5. **The external scores are often missing.** `EXT_SOURCE_1` is missing for
    56.4% of applicants and `EXT_SOURCE_3` for 19.8%, while `EXT_SOURCE_2` is
    almost complete (0.2% missing). Any model using them needs an explicit

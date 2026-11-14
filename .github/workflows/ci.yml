@@ -36,3 +36,6 @@ jobs:
 
       - name: Exploration queries
         run: uv run python explore.py
+
+      - name: Findings
+        run: uv run python findings.py
