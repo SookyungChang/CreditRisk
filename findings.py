@@ -1,20 +1,47 @@
-"""Does n_active_loans = 0 hide two different populations?
+"""Two findings about n_active_loans, the PD segment key in kri.
 
-risk_mart sets n_active_loans to 0 both for applicants whose bureau loans are
-all closed and, through COALESCE, for applicants with no bureau record at all.
-This script splits the 0 group by bureau history and compares the default
-rates (mean TARGET) of the two groups.
+1. n_active_loans = 0 hides two populations. risk_mart sets it to 0 both for
+   applicants whose bureau loans are all closed and, through COALESCE, for
+   applicants with no bureau record at all. The script splits the 0 group by
+   bureau history and compares the default rates (mean TARGET).
+2. Column lineage cannot see it. kri uses n_active_loans only as the GROUP BY
+   and JOIN key of its PD, so neither LINEAGE nor sqlglot lists it as an input
+   of the PD columns, although the grouping changes expected_loss.
 
 Run after dbt build, from the project root: uv run python findings.py
 """
 import math
+import sys
 
 import duckdb
 
 from credit_risk.config import config
 
+sys.path.insert(0, str(config.PROJECT_ROOT / "lineage"))  # lineage/ is a script folder, not a package
+import lineage  # noqa: E402
+
 Z_95 = 1.959964  # two-sided 95% quantile of the standard normal
 MIN_COUNT = 5  # defaults and non-defaults per group the normal approximation needs
+LGD = 0.45  # same fixed assumption as risk_dbt/models/kri.sql
+SEGMENT_KEY = "risk_mart.n_active_loans"
+PD_COLUMNS = ["kri.avg_pd", "kri.expected_loss"]
+
+# Expected loss as in kri.sql, with the PD segments grouped three ways
+EXPECTED_LOSS_BY_GROUPING = f"""
+    WITH pd AS (
+        SELECT
+            AMT_CREDIT AS ead,
+            AVG(TARGET) OVER (PARTITION BY n_active_loans) AS by_active_loans,
+            AVG(TARGET) OVER (PARTITION BY n_active_loans, n_loans = 0) AS by_active_loans_and_record,
+            AVG(TARGET) OVER () AS no_grouping
+        FROM risk_mart
+    )
+    SELECT
+        SUM(by_active_loans * {LGD} * ead),
+        SUM(by_active_loans_and_record * {LGD} * ead),
+        SUM(no_grouping * {LGD} * ead)
+    FROM pd
+"""
 
 # Applicants with n_active_loans = 0, split by what the bureau knows about them
 ZERO_ACTIVE_GROUPS = """
@@ -95,11 +122,53 @@ def compare_zero_active_groups(con):
                   "all loans closed", groups["all loans closed"])
 
 
+def check_segment_key_lineage(con, kri_sql):
+    """Show that neither LINEAGE nor sqlglot connects n_active_loans to the PD columns."""
+    print(f"Does column lineage see that the PD in kri depends on {SEGMENT_KEY}?")
+    columns, schema = lineage.load_columns(con)
+    parsed, _ = lineage.derive_edges({"kri": kri_sql}, columns, schema)
+    found = False
+    for column in PD_COLUMNS:
+        # trace() goes all the way upstream; keep its risk_mart inputs, like sqlglot's one hop
+        documented = sorted({source for source, _, _ in lineage.trace(column) if source.startswith("risk_mart.")})
+        from_sql = sorted(source for source, target in parsed if target == column)
+        in_either = SEGMENT_KEY.lower() in {source.lower() for source in documented + from_sql}
+        found |= in_either
+        print(f"  {column}")
+        print(f"    LINEAGE trace: {', '.join(documented) or '-'}")
+        print(f"    sqlglot parse: {', '.join(from_sql) or '-'}")
+        print(f"    includes {SEGMENT_KEY}: {'yes' if in_either else 'no'}")
+    downstream = [target for _, target, _ in lineage.impact(SEGMENT_KEY)]
+    print(f"  impact('{SEGMENT_KEY}'): {', '.join(downstream) or 'no downstream column'}")
+    if not found:
+        print("  It is only the GROUP BY and JOIN key of the PD in kri.sql, which neither counts as an input.")
+    print()
+
+
+def compare_expected_loss_by_grouping(con):
+    """Show that changing only the PD grouping changes kri.expected_loss."""
+    as_built, by_record, flat = con.execute(EXPECTED_LOSS_BY_GROUPING).fetchall()[0]
+    print(f"Yet the PD grouping moves expected loss (LGD {LGD:.0%}, as in kri.sql):")
+    for label, value in (("PD by n_active_loans (as in kri)", as_built),
+                         ("PD by n_active_loans and bureau record", by_record),
+                         ("one PD for all (no grouping)", flat)):
+        line = f"  {label:<40} {value:>16,.0f}"
+        if value != as_built:  # as_built is 0 only if nobody defaults, and then so is every grouping
+            line += f"  ({value - as_built:+,.0f}, {(value - as_built) / as_built:+.2%})"
+        print(line)
+
+
 def main():
+    if not lineage.MANIFEST_PATH.exists():
+        sys.exit(f"{lineage.MANIFEST_PATH.relative_to(config.PROJECT_ROOT)} not found; run dbt build first")
+    models, _ = lineage.load_manifest()
     con = duckdb.connect(str(config.DB_PATH), read_only=True)
     try:
         print_segment_context(con)
         compare_zero_active_groups(con)
+        print()
+        check_segment_key_lineage(con, models["kri"])
+        compare_expected_loss_by_grouping(con)
     finally:
         con.close()
 

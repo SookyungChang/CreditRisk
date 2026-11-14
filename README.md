@@ -59,7 +59,7 @@ uv run python lineage/lineage.py
 | `dbt deps` | Installs `dbt_utils` (pinned in `risk_dbt/package-lock.yml`). Needed once per checkout. |
 | `dbt build` | Builds `stg_application`, `bureau_agg`, `risk_mart` and `kri` and runs every data test. Must be run from `risk_dbt/`, because `profiles.yml` points to `../risk.duckdb`. |
 | `explore.py` | Prints the exploratory questions below. Opens the database read-only. |
-| `findings.py` | Splits the `n_active_loans = 0` segment by bureau history and compares the default rates, with a 95% CI and a two-proportion z-test. Opens the database read-only. |
+| `findings.py` | Two findings about `n_active_loans`, the PD segment key in `kri`: splits its 0 segment by bureau history and compares the default rates (95% CI, two-proportion z-test), then shows that column lineage misses it as a PD input. Reads the manifest, so run it after `dbt build`. Opens the database read-only. |
 | `lineage/lineage.py` | Checks the documented column-level lineage against the latest `dbt build` (exit code 1 on mismatch), then redraws `outputs/lineage.png` and `outputs/lineage.svg`. Reads `risk_dbt/target/manifest.json`, so run it after `dbt build`. |
 
 `risk.duckdb` is fully generated: delete it and re-run the steps to rebuild
@@ -87,7 +87,7 @@ CreditRisk/
 │       ├── assert_pd_reconciles.sql
 │       └── assert_row_count_matches.sql
 ├── explore.py                  # 3. Exploratory questions
-├── findings.py                 # 3. Default rate behind n_active_loans = 0, by bureau history
+├── findings.py                 # 3. n_active_loans findings: default rates, lineage gap
 ├── lineage/lineage.py          # 4. Column-level lineage: check, trace/impact, draw
 ├── src/credit_risk/config.py   # Shared paths (project root, database file)
 ├── tests/
@@ -176,6 +176,12 @@ Notes:
   listed in `ASSUMPTION_COLUMNS` with a description of the assumption
   (`kri.expected_loss`: LGD fixed at 45%). Their other inputs must still match
   the SQL, and the diagram shows each description as a note on its column.
+- Lineage follows values, not keys. `kri` groups and joins its PD by
+  `n_active_loans`, but neither `LINEAGE` nor sqlglot counts a GROUP BY or
+  JOIN key as an input, so `trace('kri.expected_loss')` never reaches
+  `risk_mart.n_active_loans` and `impact('risk_mart.n_active_loans')` is
+  empty. Changing only the grouping still moves expected loss (-0.22% when the
+  0 segment is split by bureau record). `findings.py` shows both.
 - The checks verify which columns are connected, not the transformation text.
   Review that against the SQL by hand.
 
