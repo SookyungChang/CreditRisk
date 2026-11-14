@@ -43,6 +43,15 @@ models:
           cde: true
         data_tests: [not_null]  
 
+      - name: n_active_cards
+        description: >
+          Number of credit cards at other institutions that were still active
+          according to the credit bureau (see bureau_card_agg). Kept apart from
+          n_active_loans. Set to 0 if the applicant has no credit card in the
+          bureau, so 0 does not distinguish 'no active card' from
+          'no information'.
+        data_tests: [not_null]
+
       - name: is_not_employed
         description: >
           1 if DAYS_EMPLOYED in the application contained the placeholder value 365243,
@@ -71,6 +80,20 @@ models:
           - dbt_utils.expression_is_true:
               arguments:
                 expression: "> 0"
+
+  - name: bureau_card_agg
+    description: >
+      Credit cards per applicant from the credit bureau, the rows bureau_agg
+      excludes. Only counts, because AMT_CREDIT_SUM has no consistent meaning
+      for cards. Applicants without a credit card have no row.
+    columns:
+      - name: SK_ID_CURR
+        description: ID of loan in our sample
+        data_tests: [not_null, unique]
+      - name: n_cards
+        description: Number of credit cards in the bureau, in any status.
+      - name: n_active_cards
+        description: Number of credit cards with CREDIT_ACTIVE = 'Active'.
 
   - name: kri
     description: >

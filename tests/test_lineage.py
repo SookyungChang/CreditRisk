@@ -9,7 +9,7 @@ from credit_risk.config import config
 from sample_data import create_sample_db
 
 MODELS_DIR = config.PROJECT_ROOT / "risk_dbt" / "models"
-MODEL_ORDER = ["stg_application", "bureau_agg", "risk_mart", "kri"]  # build order
+MODEL_ORDER = ["stg_application", "bureau_agg", "bureau_card_agg", "risk_mart", "kri"]  # build order
 SOURCES = {"application", "bureau"}
 
 # {{ source('raw', 'x') }} / {{ ref('x') }}

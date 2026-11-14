@@ -57,7 +57,7 @@ uv run python lineage/lineage.py
 |---|---|
 | `ingest.py` | Downloads the competition files with `kagglehub` and loads `application_train.csv` → `application` and `bureau.csv` → `bureau` into `risk.duckdb` (`CREATE OR REPLACE`, so it is safe to re-run). |
 | `dbt deps` | Installs `dbt_utils` (pinned in `risk_dbt/package-lock.yml`). Needed once per checkout. |
-| `dbt build` | Builds `stg_application`, `bureau_agg`, `risk_mart` and `kri` and runs every data test. Must be run from `risk_dbt/`, because `profiles.yml` points to `../risk.duckdb`. |
+| `dbt build` | Builds `stg_application`, `bureau_agg`, `bureau_card_agg`, `risk_mart` and `kri` and runs every data test. Must be run from `risk_dbt/`, because `profiles.yml` points to `../risk.duckdb`. |
 | `explore.py` | Prints the exploratory questions below. Opens the database read-only. |
 | `findings.py` | Two findings about `n_active_loans`, the PD segment key in `kri`: splits its 0 segment by bureau history and compares the default rates (95% CI, two-proportion z-test), then shows that column lineage misses it as a PD input. Reads the manifest, so run it after `dbt build`. Opens the database read-only. |
 | `lineage/lineage.py` | Checks the documented column-level lineage against the latest `dbt build` (exit code 1 on mismatch), then redraws `outputs/lineage.png` and `outputs/lineage.svg`. Reads `risk_dbt/target/manifest.json`, so run it after `dbt build`. |
@@ -79,10 +79,12 @@ CreditRisk/
 │   │   ├── sources.yml         # raw.application, raw.bureau
 │   │   ├── stg_application.sql # application columns in use, DAYS_EMPLOYED cleaned
 │   │   ├── bureau_agg.sql      # non-card bureau loans aggregated per applicant
+│   │   ├── bureau_card_agg.sql # bureau credit cards counted per applicant
 │   │   ├── risk_mart.sql       # one row per applicant, enriched with bureau history
 │   │   ├── kri.sql             # portfolio key risk indicators (PD, EAD, EL, concentration)
 │   │   └── schema.yml          # column docs + generic tests
 │   └── tests/                  # singular tests
+│       ├── assert_bureau_split_reconciles.sql
 │       ├── assert_no_1000_years_employed.sql
 │       ├── assert_pd_reconciles.sql
 │       └── assert_row_count_matches.sql
@@ -130,8 +132,10 @@ flowchart LR
     bureau_csv[bureau.csv] -->|ingest.py| bureau[(bureau)]
     application --> stg_application[stg_application]
     bureau --> bureau_agg[bureau_agg]
+    bureau --> bureau_card_agg[bureau_card_agg]
     stg_application --> risk_mart[risk_mart]
     bureau_agg --> risk_mart
+    bureau_card_agg --> risk_mart
     risk_mart --> kri[kri]
     application --> explore([explore.py])
     bureau --> explore
@@ -170,7 +174,8 @@ Notes:
 - Identifiers are compared case-insensitively, like DuckDB, because sqlglot
   lowercases unquoted names.
 - A `COUNT(*)` has no input column for sqlglot to find. Such columns are listed
-  in `ROW_COUNT_COLUMNS` (`bureau_agg.n_loans`, `kri.n_customers`), and their
+  in `ROW_COUNT_COLUMNS` (`bureau_agg.n_loans`, `bureau_card_agg.n_cards`,
+  `kri.n_customers`), and their
   documented edge is accepted while the SQL still counts rows.
 - A fixed assumption in the SQL has no input column either. Such columns are
   listed in `ASSUMPTION_COLUMNS` with a description of the assumption
@@ -182,8 +187,9 @@ Notes:
   `risk_mart.n_active_loans` and `impact('risk_mart.n_active_loans')` is
   empty. Changing only the grouping still moves expected loss (-0.38% when the
   0 segment is split at `n_loans = 0`). `findings.py` shows both. The same
-  holds for a WHERE filter: `bureau_agg` reads `bureau.CREDIT_TYPE` only to
-  drop credit cards, so that column has no edge either.
+  holds for a WHERE filter: `bureau_agg` and `bureau_card_agg` read
+  `bureau.CREDIT_TYPE` only to split loans from credit cards, so that column
+  has no edge either.
 - The checks verify which columns are connected, not the transformation text.
   Review that against the SQL by hand.
 
@@ -198,10 +204,11 @@ All data quality checks live in dbt and run with `dbt build`.
 
 | Test | Where | Checks |
 |---|---|---|
-| `unique`, `not_null` on `stg_application.SK_ID_CURR` and `risk_mart.SK_ID_CURR` | `schema.yml` | One row per applicant |
+| `unique`, `not_null` on `stg_application.SK_ID_CURR`, `bureau_card_agg.SK_ID_CURR` and `risk_mart.SK_ID_CURR` | `schema.yml` | One row per applicant |
 | `not_null`, `dbt_utils.expression_is_true "> 0"` on `stg_application.AMT_INCOME_TOTAL` | `schema.yml` | Positive income |
 | `not_null`, `accepted_values [0, 1]` on `risk_mart.TARGET` | `schema.yml` | Valid label |
-| `not_null` on `risk_mart.n_loans`, `n_active_loans`, `is_not_employed`, `credit_income_ratio` | `schema.yml` | Missing bureau data is filled, ratio is always defined |
+| `not_null` on `risk_mart.n_loans`, `n_active_loans`, `n_active_cards`, `is_not_employed`, `credit_income_ratio` | `schema.yml` | Missing bureau data is filled, ratio is always defined |
+| `assert_bureau_split_reconciles` | `risk_dbt/tests/` | `bureau_agg` (non-card loans) and `bureau_card_agg` (credit cards) count every bureau row exactly once |
 | `assert_no_1000_years_employed` | `risk_dbt/tests/` | The `365243` placeholder never reaches `risk_mart.days_employed` |
 | `assert_row_count_matches` | `risk_dbt/tests/` | The `LEFT JOIN` neither adds nor drops applicants |
 | `not_null` on every `kri` column; `accepted_range [0, 1]` on `observed_default_rate`, `top10_concentration`; `> 0` / `>= 0` on `n_customers`, `total_ead`, `expected_loss`; `expected_loss <= total_ead` | `schema.yml` | KRIs are defined and in a plausible range |
@@ -305,8 +312,14 @@ Income is complete and positive in the raw data (minimum 25,650, no NULLs), so
   active bureau loans, so `n_active_loans` largely counted cards, and their
   `AMT_CREDIT_SUM` has no consistent meaning (0 for 36,295 of 285,998 active
   cards, equal to the card limit for only 17,170). `bureau_agg` therefore
-  counts and averages non-card loans only. Revolving loans applied for at
-  Home Credit (`application.NAME_CONTRACT_TYPE`) stay in the portfolio.
+  counts and averages non-card loans only, and `bureau_card_agg` counts the
+  cards, which reach `risk_mart` as their own column `n_active_cards` (counts
+  only, no amounts). The card count is a risk signal of its own: among
+  applicants with a bureau record, the default rate rises from 5.7% with no
+  active card to 8.7% with three or more for those with no active loan, and
+  from 8.3% to 15.3% for those with three or more. `kri` does not use it.
+  Revolving loans applied for at Home Credit (`application.NAME_CONTRACT_TYPE`)
+  stay in the portfolio.
 - **Column lineage is written by hand, then verified by machine.** Lineage
   generated from the SQL would faithfully copy any mistake in the SQL. A
   hand-written `LINEAGE` states the intended data flow, and sqlglot proves

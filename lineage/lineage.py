@@ -43,12 +43,19 @@ LINEAGE = [
     ("bureau.CREDIT_ACTIVE", "bureau_agg.n_active_loans",
      "SUM(CASE WHEN CREDIT_ACTIVE = 'Active' THEN 1 ELSE 0 END), credit cards excluded"),
 
+    # risk_dbt/models/bureau_card_agg.sql (credit cards only, the complement of bureau_agg)
+    ("bureau.SK_ID_CURR", "bureau_card_agg.SK_ID_CURR", "GROUP BY key"),
+    ("bureau.SK_ID_BUREAU", "bureau_card_agg.n_cards", "COUNT(*) per SK_ID_CURR, credit cards only"),
+    ("bureau.CREDIT_ACTIVE", "bureau_card_agg.n_active_cards",
+     "SUM(CASE WHEN CREDIT_ACTIVE = 'Active' THEN 1 ELSE 0 END), credit cards only"),
+
     # risk_dbt/models/risk_mart.sql
     ("stg_application.SK_ID_CURR", "risk_mart.SK_ID_CURR", "pass-through (LEFT JOIN key)"),
     ("stg_application.TARGET", "risk_mart.TARGET", "pass-through"),
     ("bureau_agg.n_loans", "risk_mart.n_loans", "COALESCE(n_loans, 0)"),
     ("bureau_agg.avg_amount", "risk_mart.avg_amount", "pass-through (NULL without bureau history)"),
     ("bureau_agg.n_active_loans", "risk_mart.n_active_loans", "COALESCE(n_active_loans, 0)"),
+    ("bureau_card_agg.n_active_cards", "risk_mart.n_active_cards", "COALESCE(n_active_cards, 0)"),
     ("stg_application.AMT_CREDIT", "risk_mart.credit_income_ratio",
      "AMT_CREDIT / NULLIF(AMT_INCOME_TOTAL, 0)"),
     ("stg_application.AMT_INCOME_TOTAL", "risk_mart.credit_income_ratio",
@@ -71,7 +78,7 @@ LINEAGE = [
 
 # COUNT(*) columns have no input column for sqlglot to find, so their
 # documented edge is accepted as long as the SQL still counts rows.
-ROW_COUNT_COLUMNS = {"bureau_agg.n_loans", "kri.n_customers"}
+ROW_COUNT_COLUMNS = {"bureau_agg.n_loans", "bureau_card_agg.n_cards", "kri.n_customers"}
 # Columns with an input that is a fixed assumption rather than a table column,
 # mapped to a description of that assumption. The check accepts the input
 # sqlglot cannot trace, and draw_lineage() shows the description as a note on
