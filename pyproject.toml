@@ -20,9 +20,6 @@ dependencies = [
 where = ["src"]
 
 [dependency-groups]
-dependency = [
-    "notebook>=7.6.5",
-]
 dev = [
     "nbstripout>=0.9.1",
     "pytest>=9.2.0",
@@ -31,6 +28,11 @@ notebook = [
     "ipykernel>=7.4.0",
     "pandas>=3.1.1",
 ]
+
+[tool.uv]
+# Install the notebook group by default too, so uv sync/add/remove never
+# uninstall the kernel used to open legacy/exploration.ipynb
+default-groups = ["dev", "notebook"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
