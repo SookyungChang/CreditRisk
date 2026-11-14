@@ -99,7 +99,8 @@ def test_count_star_needs_row_count_entry(built, monkeypatch):
     monkeypatch.setattr(lineage, "ROW_COUNT_COLUMNS", lineage.ROW_COUNT_COLUMNS - {"bureau_agg.n_loans"})
     assert check(built) == [
         "in LINEAGE but not in SQL: bureau.SK_ID_BUREAU -> bureau_agg.n_loans",
-        "bureau_agg.n_loans: input is not a column; add it to ROW_COUNT_COLUMNS if it is a COUNT(*)",
+        "bureau_agg.n_loans: input is not a column; add it to ROW_COUNT_COLUMNS (a COUNT(*)) "
+        "or ASSUMPTION_COLUMNS (a fixed assumption)",
     ]
 
 
@@ -108,6 +109,38 @@ def test_stale_row_count_entry(built, monkeypatch):
     assert check(built) == [
         "bureau_agg.avg_amount: in ROW_COUNT_COLUMNS but sqlglot traces its input; remove it",
     ]
+
+
+def test_assumption_column_needs_entry(built, monkeypatch):
+    monkeypatch.setattr(lineage, "ASSUMPTION_COLUMNS", {})
+    assert check(built) == [
+        "kri.expected_loss: input is not a column; add it to ROW_COUNT_COLUMNS (a COUNT(*)) "
+        "or ASSUMPTION_COLUMNS (a fixed assumption)",
+    ]
+
+
+def test_stale_assumption_entry(built, monkeypatch):
+    monkeypatch.setattr(lineage, "ASSUMPTION_COLUMNS", dict(lineage.ASSUMPTION_COLUMNS, **{"kri.total_ead": "x"}))
+    assert check(built) == [
+        "kri.total_ead: in ASSUMPTION_COLUMNS but sqlglot traces its input; remove it",
+    ]
+
+
+def test_wrong_edge_into_assumption_column(built, monkeypatch):
+    # sqlglot still traces the other inputs of an assumption column, so they must match
+    monkeypatch.setattr(lineage, "LINEAGE", replace_edge(
+        "risk_mart.TARGET", "kri.expected_loss", "risk_mart.n_loans", "kri.expected_loss"))
+    assert check(built) == [
+        "in SQL but not in LINEAGE: risk_mart.target -> kri.expected_loss",
+        "in LINEAGE but not in SQL: risk_mart.n_loans -> kri.expected_loss",
+    ]
+
+
+def test_graph_shows_every_assumption():
+    source = lineage.build_graph().source
+    for column, assumption in lineage.ASSUMPTION_COLUMNS.items():
+        assert assumption in source
+        assert f"{column} assumption" in source
 
 
 def test_unknown_table(built, monkeypatch):

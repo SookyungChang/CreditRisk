@@ -167,7 +167,9 @@ Notes:
   in `ROW_COUNT_COLUMNS` (`bureau_agg.n_loans`, `kri.n_customers`), and their
   documented edge is accepted while the SQL still counts rows.
 - A fixed assumption in the SQL has no input column either. Such columns are
-  listed in `ASSUMPTION_COLUMNS` (`kri.expected_loss`, which uses LGD = 0.45).
+  listed in `ASSUMPTION_COLUMNS` with a description of the assumption
+  (`kri.expected_loss`: LGD fixed at 45%). Their other inputs must still match
+  the SQL, and the diagram shows each description as a note on its column.
 - The checks verify which columns are connected, not the transformation text.
   Review that against the SQL by hand.
 
@@ -199,9 +201,10 @@ uv run pytest
 
 The pytest suite in `tests/` builds every dbt model from its real SQL on a
 small synthetic database (`tests/sample_data.py`) and checks that
-`check_consistency()` passes. It then breaks `LINEAGE`, the model SQL or
-`ROW_COUNT_COLUMNS` in specific ways (a stale edge, a wrong input column, an
-undocumented model, ...) and checks that each one is reported.
+`check_consistency()` passes. It then breaks `LINEAGE`, the model SQL,
+`ROW_COUNT_COLUMNS` or `ASSUMPTION_COLUMNS` in specific ways (a stale edge, a
+wrong input column, an undocumented model, ...) and checks that each one is
+reported.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and
 on pull requests. The Kaggle data cannot be downloaded or redistributed in

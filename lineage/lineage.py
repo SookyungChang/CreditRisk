@@ -71,11 +71,14 @@ LINEAGE = [
 # COUNT(*) columns have no input column for sqlglot to find, so their
 # documented edge is accepted as long as the SQL still counts rows.
 ROW_COUNT_COLUMNS = {"bureau_agg.n_loans", "kri.n_customers"}
-# Columns with an input that is a fixed assumption rather than a table column.
-# The value documents the assumption, so it stays visible in the lineage.
+# Columns with an input that is a fixed assumption rather than a table column,
+# mapped to a description of that assumption. The check accepts the input
+# sqlglot cannot trace, and draw_lineage() shows the description as a note on
+# the column.
 ASSUMPTION_COLUMNS = {
     "kri.expected_loss": "LGD fixed at 45% (not in the data)",
 }
+
 
 def trace(column):
     """Return every edge upstream of `column`, nearest first."""
@@ -169,20 +172,25 @@ def check_edges(models, columns, schema):
     documented = {key((source, target)): (source, target)
                   for source, target, _ in LINEAGE if target.split(".", 1)[0] in models}
     untraced = {target.lower() for target in untraced}
-        # COUNT(*) columns and assumption-based columns both have untraceable inputs
-    untraceable = ROW_COUNT_COLUMNS | set(ASSUMPTION_COLUMNS)
-    row_count = {column.lower() for column in untraceable if column.split(".", 1)[0] in models}
+    exceptions = {  # list name -> its columns in the checked models
+        name: {column.lower() for column in listed if column.split(".", 1)[0] in models}
+        for name, listed in (("ROW_COUNT_COLUMNS", ROW_COUNT_COLUMNS), ("ASSUMPTION_COLUMNS", ASSUMPTION_COLUMNS))
+    }
+    row_count = exceptions["ROW_COUNT_COLUMNS"] & untraced
 
     problems = []
     for edge in sorted(derived.keys() - documented.keys()):
         problems.append("in SQL but not in LINEAGE: {} -> {}".format(*derived[edge]))
     for edge in sorted(documented.keys() - derived.keys()):
-        if edge[1] not in (row_count & untraced):
+        # Only a COUNT(*) edge is exempt: an assumption column's other inputs are still traced
+        if edge[1] not in row_count:
             problems.append("in LINEAGE but not in SQL: {} -> {}".format(*documented[edge]))
-    for target in sorted(untraced - row_count):
-        problems.append(f"{target}: input is not a column; add it to ROW_COUNT_COLUMNS if it is a COUNT(*)")
-    for target in sorted(row_count - untraced):
-        problems.append(f"{target}: in ROW_COUNT_COLUMNS but sqlglot traces its input; remove it")
+    for target in sorted(untraced - set().union(*exceptions.values())):
+        problems.append(f"{target}: input is not a column; add it to ROW_COUNT_COLUMNS (a COUNT(*)) "
+                        "or ASSUMPTION_COLUMNS (a fixed assumption)")
+    for name, listed in exceptions.items():
+        for target in sorted(listed - untraced):
+            problems.append(f"{target}: in {name} but sqlglot traces its input; remove it")
     return problems
 
 
@@ -225,11 +233,21 @@ def check_consistency(con, models, sources):
     return problems
 
 
-def draw_lineage(outputs_dir=config.OUTPUTS_DIR):
-    """Render LINEAGE with graphviz to lineage.png and lineage.svg."""
+def build_graph():
+    """Return LINEAGE as a graphviz graph, with a note on every assumption column."""
     dot = graphviz.Digraph("lineage", graph_attr={"rankdir": "LR"})
     for source, target, transformation in LINEAGE:
         dot.edge(source, target, tooltip=transformation)  # tooltip shows in the SVG
+    for column, assumption in ASSUMPTION_COLUMNS.items():
+        note = f"{column} assumption"
+        dot.node(note, f"Assumption\\n{assumption}", shape="note", style="filled", fillcolor="lightyellow")
+        dot.edge(note, column, style="dashed", arrowhead="none")
+    return dot
+
+
+def draw_lineage(outputs_dir=config.OUTPUTS_DIR):
+    """Render LINEAGE with graphviz to lineage.png and lineage.svg."""
+    dot = build_graph()
     outputs_dir.mkdir(exist_ok=True)
     for fmt in ("png", "svg"):
         path = outputs_dir / f"lineage.{fmt}"
@@ -263,6 +281,9 @@ def main():
 
     print_edges("trace('kri.total_ead'):", trace("kri.total_ead"))
     print_edges("impact('bureau.AMT_CREDIT_SUM'):", impact("bureau.AMT_CREDIT_SUM"))
+    print("Assumptions:")
+    for column, assumption in ASSUMPTION_COLUMNS.items():
+        print(f"  {column}: {assumption}")
     draw_lineage()
 
 
