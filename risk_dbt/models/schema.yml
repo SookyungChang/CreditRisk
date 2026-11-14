@@ -69,3 +69,66 @@ models:
           - dbt_utils.expression_is_true:
               arguments:
                 expression: "> 0"
+
+  - name: kri
+    description: >
+      Key risk indicators for the whole portfolio, one row built on risk_mart.
+      PD is the observed default rate per n_active_loans segment (in-sample),
+      EAD is the credit amount of the loan (AMT_CREDIT) and LGD is a fixed 45%
+      assumption, not estimated from the data.
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "expected_loss <= total_ead"
+    columns:
+      - name: n_customers
+        description: Number of applicants in risk_mart.
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "> 0"
+
+      - name: observed_default_rate
+        description: Share of applicants with TARGET = 1.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+
+      - name: avg_pd
+        description: >
+          Customer-weighted average of the segment PDs. Equals
+          observed_default_rate by construction, so it serves as a
+          reconciliation check of the PD calculation
+          (tests/assert_pd_reconciles.sql).
+        data_tests: [not_null]
+
+      - name: total_ead
+        description: Exposure at default, the sum of AMT_CREDIT over all applicants.
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "> 0"
+
+      - name: expected_loss
+        description: Sum of PD x LGD x EAD over all applicants, with LGD = 0.45.
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= 0"
+
+      - name: top10_concentration
+        description: >
+          Share of total EAD held by the largest 10% of loans
+          (NTILE(10) by AMT_CREDIT).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
