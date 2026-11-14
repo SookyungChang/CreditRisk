@@ -25,8 +25,9 @@ Set up the environment, then run the steps in order (from the project root):
 uv sync
 ```
 
-`uv sync` also installs the `dev` group (pytest, nbstripout). To open the
-legacy exploration notebook, add `--group notebook` (pandas, ipykernel).
+`uv sync` installs the `dev` group (pytest, nbstripout) and the `notebook`
+group (pandas, ipykernel, the kernel for the legacy exploration notebook).
+Both are default groups in `pyproject.toml`, so later `uv` commands keep them.
 
 Before committing notebook changes, run `uv run nbstripout --install` once per
 clone. `.gitattributes` then strips notebook outputs on every commit, so no
@@ -52,7 +53,7 @@ uv run python lineage/lineage.py
 |---|---|
 | `ingest.py` | Downloads the competition files with `kagglehub` and loads `application_train.csv` → `application` and `bureau.csv` → `bureau` into `risk.duckdb` (`CREATE OR REPLACE`, so it is safe to re-run). |
 | `dbt deps` | Installs `dbt_utils` (pinned in `risk_dbt/package-lock.yml`). Needed once per checkout. |
-| `dbt build` | Builds `stg_application`, `bureau_agg` and `risk_mart` and runs every data test. Must be run from `risk_dbt/`, because `profiles.yml` points to `../risk.duckdb`. |
+| `dbt build` | Builds `stg_application`, `bureau_agg`, `risk_mart` and `kri` and runs every data test. Must be run from `risk_dbt/`, because `profiles.yml` points to `../risk.duckdb`. |
 | `explore.py` | Prints the exploratory questions below. Opens the database read-only. |
 | `lineage/lineage.py` | Checks the documented column-level lineage against the latest `dbt build` (exit code 1 on mismatch), then redraws `outputs/lineage.png` and `outputs/lineage.svg`. Reads `risk_dbt/target/manifest.json`, so run it after `dbt build`. |
 
@@ -74,9 +75,11 @@ CreditRisk/
 │   │   ├── stg_application.sql # application columns in use, DAYS_EMPLOYED cleaned
 │   │   ├── bureau_agg.sql      # bureau loans aggregated per applicant
 │   │   ├── risk_mart.sql       # one row per applicant, enriched with bureau history
+│   │   ├── kri.sql             # portfolio key risk indicators (PD, EAD, EL, concentration)
 │   │   └── schema.yml          # column docs + generic tests
 │   └── tests/                  # singular tests
 │       ├── assert_no_1000_years_employed.sql
+│       ├── assert_pd_reconciles.sql
 │       └── assert_row_count_matches.sql
 ├── explore.py                  # 3. Exploratory questions
 ├── lineage/lineage.py          # 4. Column-level lineage: check, trace/impact, draw
@@ -123,9 +126,11 @@ flowchart LR
     bureau --> bureau_agg[bureau_agg]
     stg_application --> risk_mart[risk_mart]
     bureau_agg --> risk_mart
+    risk_mart --> kri[kri]
     application --> explore([explore.py])
     bureau --> explore
     risk_mart --> explore
+    kri --> explore
 ```
 
 ### Column level: lineage/
@@ -159,8 +164,10 @@ Notes:
 - Identifiers are compared case-insensitively, like DuckDB, because sqlglot
   lowercases unquoted names.
 - A `COUNT(*)` has no input column for sqlglot to find. Such columns are listed
-  in `ROW_COUNT_COLUMNS` (`bureau_agg.n_loans`), and their documented edge is
-  accepted while the SQL still counts rows.
+  in `ROW_COUNT_COLUMNS` (`bureau_agg.n_loans`, `kri.n_customers`), and their
+  documented edge is accepted while the SQL still counts rows.
+- A fixed assumption in the SQL has no input column either. Such columns are
+  listed in `ASSUMPTION_COLUMNS` (`kri.expected_loss`, which uses LGD = 0.45).
 - The checks verify which columns are connected, not the transformation text.
   Review that against the SQL by hand.
 
@@ -181,6 +188,8 @@ All data quality checks live in dbt and run with `dbt build`.
 | `not_null` on `risk_mart.n_loans`, `n_active_loans`, `is_not_employed`, `credit_income_ratio` | `schema.yml` | Missing bureau data is filled, ratio is always defined |
 | `assert_no_1000_years_employed` | `risk_dbt/tests/` | The `365243` placeholder never reaches `risk_mart.days_employed` |
 | `assert_row_count_matches` | `risk_dbt/tests/` | The `LEFT JOIN` neither adds nor drops applicants |
+| `not_null` on every `kri` column; `accepted_range [0, 1]` on `observed_default_rate`, `top10_concentration`; `> 0` / `>= 0` on `n_customers`, `total_ead`, `expected_loss`; `expected_loss <= total_ead` | `schema.yml` | KRIs are defined and in a plausible range |
+| `assert_pd_reconciles` | `risk_dbt/tests/` | The segment PDs, weighted by customers, add back up to the observed default rate |
 
 ## Testing and CI
 
@@ -233,6 +242,27 @@ From `explore.py`:
    The 0 group mixes two different populations: applicants with only closed
    loans (46,341, 5.7% default) and applicants with no bureau history at all
    (44,020, 10.1% default).
+5. **The external scores are often missing.** `EXT_SOURCE_1` is missing for
+   56.4% of applicants and `EXT_SOURCE_3` for 19.8%, while `EXT_SOURCE_2` is
+   almost complete (0.2% missing). Any model using them needs an explicit
+   missing-value strategy.
+6. **Bureau amounts mix currencies.** 99.9% of bureau loans (98.8% of the
+   amount) are in `currency 1`, and the other three currencies hold about 1.2%
+   of the amount. `bureau_agg.avg_amount` averages across currencies without
+   conversion; the effect is small but real.
+7. **Portfolio KRIs** (`kri`, LGD fixed at 45% as an assumption):
+
+   | KRI | Value |
+   |---|---:|
+   | Observed default rate | 8.07% |
+   | Total EAD (sum of `AMT_CREDIT`) | 184.2 billion |
+   | Expected loss | 6.71 billion (3.6% of EAD) |
+   | EAD held by the largest 10% of loans | 24.4% |
+
+   PD is the observed default rate per `n_active_loans` segment, estimated
+   in-sample, so its customer-weighted average equals the observed default
+   rate by construction. `assert_pd_reconciles` uses exactly that identity to
+   check the PD calculation.
 
 Income is complete and positive in the raw data (minimum 25,650, no NULLs), so
 `credit_income_ratio` is always defined.
